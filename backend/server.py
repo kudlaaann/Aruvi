@@ -425,11 +425,18 @@ async def export_transactions(format: str = "csv", start_date: Optional[str] = N
 def get_drive_flow():
     redirect_uri = os.environ.get("GOOGLE_DRIVE_REDIRECT_URI")
     return Flow.from_client_config(
-        {"web": {"client_id": os.environ["GOOGLE_CLIENT_ID"], "client_secret": os.environ["GOOGLE_CLIENT_SECRET"],
-                 "auth_uri": "https://accounts.google.com/o/oauth2/auth", "token_uri": "https://oauth2.googleapis.com/token",
-                 "redirect_uris": [redirect_uri]}},
+        {
+            "web": {
+                "client_id": os.environ["GOOGLE_CLIENT_ID"],
+                "client_secret": os.environ["GOOGLE_CLIENT_SECRET"],
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": [redirect_uri]
+            }
+        },
         scopes=["https://www.googleapis.com/auth/drive.file"],
-        redirect_uri=redirect_uri
+        redirect_uri=redirect_uri,
+        autogenerate_code_verifier=False
     )
 
 @api_router.get("/drive/connect")
