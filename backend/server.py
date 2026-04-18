@@ -442,8 +442,13 @@ def get_drive_flow():
 @api_router.get("/drive/connect")
 async def connect_drive(user=Depends(get_current_user)):
     flow = get_drive_flow()
-    auth_url, state = flow.authorization_url(access_type='offline', include_granted_scopes='true', prompt='consent', state=user["id"])
-    return {"authorization_url": auth_url}
+    auth_url, state = flow.authorization_url(
+        access_type='offline',
+        include_granted_scopes='true',
+        prompt='consent',
+        state=user["id"],
+        code_challenge_method=None
+    )
 
 @api_router.get("/oauth/drive/callback")
 async def drive_callback(code: str, state: str = ""):
