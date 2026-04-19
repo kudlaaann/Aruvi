@@ -203,12 +203,27 @@ export default function Dashboard() {
           {!d?.drive_connected ? (
             <TouchableOpacity testID="connect-drive-btn" style={{ flex: 1, backgroundColor: '#E8F5E9', paddingVertical: 10, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6 }}
               onPress={async () => {
-                try {
-                  const r = await apiFetch('/api/drive/connect');
-                  const data = await r.json();
-                  if (data.authorization_url) Linking.openURL(data.authorization_url);
-                } catch (e) { Alert.alert('Error', 'Failed to connect'); }
-              }}>
+				  try {
+					  const r = await apiFetch('/api/drive/connect');
+					  
+					  if (!r.ok) {
+						  const txt = await r.text();
+						  Alert.alert('Error', `Server error: ${txt}`);
+						  return;
+						  }
+						  
+						  const data = await r.json();
+						  
+						  if (data.authorization_url) {
+							  Linking.openURL(data.authorization_url);
+							  } else {
+								  Alert.alert('Error', 'No authorization URL received');
+								  }
+								  
+								  } catch (e) {
+									  Alert.alert('Error', String(e));
+									  }
+									  }}>
               <Ionicons name="logo-google" size={16} color={T.primary} />
               <Text style={{ fontSize: 13, fontWeight: '600', color: T.primary }}>Connect Drive</Text>
             </TouchableOpacity>
