@@ -16,7 +16,7 @@ import bcrypt, jwt
 
 # Google Drive imports
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
+from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request as GoogleRequest
@@ -622,6 +622,127 @@ async def run_drive_backup(user_id: str):
         "file": filename
     }
     
+@api_router.post("/drive/restore")
+async def restore_backup(user=Depends(get_current_user)):
+    try:
+        service = await get_drive_service_for_user(user["id"])
+
+        if not service:
+            raise HTTPException(status_code=400, detail="Drive not connected")
+
+        folder_name = "Aruvi Housing Solutions - Backup"
+
+        # Find folder
+        folder_query = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+
+        folders = service.files().list(
+            q=folder_query,
+            spaces="drive",
+            fields="files(id,name)"
+        ).execute().get("files", [])
+
+        if not folders:
+            raise HTTPException(status_code=404, detail="Backup folder not found")
+
+        folder_id = folders[0]["id"]
+
+        # Find latest Excel file
+        file_query = f"'{folder_id}' in parents and trashed=false and mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'"
+
+        files = service.files().list(
+            q=file_query,
+            orderBy="createdTime desc",
+            fields="files(id,name)"
+        ).execute().get("files", [])
+
+        if not files:
+            raise HTTPException(status_code=404, detail="No backup files found")
+
+        latest_file = files[0]
+
+        request = service.files().get_media(fileId=latest_file["id"])
+
+        file_stream = io.BytesIO()
+        downloader = MediaIoBaseDownload(file_stream, request)
+
+        done = False
+        while done is False:
+            status, done = downloader.next_chunk()
+
+        file_stream.seek(0)
+
+        from openpyxl import load_workbook
+
+        wb = load_workbook(file_stream)
+
+        # Clear old collections
+        await db.projects.delete_many({})
+        await db.transactions.delete_many({})
+        await db.partners.delete_many({})
+        await db.partner_transactions.delete_many({})
+        await db.inventory_purchases.delete_many({})
+        await db.settings.delete_many({})
+        await db.inventory.delete_many({})
+
+        collection_map = {
+            "Projects": db.projects,
+            "Transactions": db.transactions,
+            "Partners": db.partners,
+            "PartnerTransactions": db.partner_transactions,
+            "InventoryPurchases": db.inventory_purchases,
+            "Settings": db.settings,
+            "Inventory": db.inventory
+        }
+
+        for sheet_name, collection in collection_map.items():
+
+            if sheet_name not in wb.sheetnames:
+                continue
+
+            ws = wb[sheet_name]
+
+            rows = list(ws.values)
+
+            if not rows or rows[0][0] == "No Data":
+                continue
+
+            headers = list(rows[0])
+
+            docs = []
+
+            for row in rows[1:]:
+
+                doc = {}
+
+                for i, val in enumerate(row):
+                    if i < len(headers):
+                        key = headers[i]
+                        doc[key] = val
+
+                doc.pop("id", None)
+
+                docs.append(doc)
+
+            if docs:
+                await collection.insert_many(docs)
+
+        await db.backup_log.insert_one({
+            "user_id": user["id"],
+            "timestamp": datetime.now(timezone.utc),
+            "status": "restore_success",
+            "file": latest_file["name"]
+        })
+
+        return {
+            "message": "Restore successful",
+            "file": latest_file["name"]
+        }
+
+    except Exception as e:
+        logger.error(f"Restore failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @api_router.get("/drive/disconnect")
 async def disconnect_drive(user=Depends(get_current_user)):
     await db.drive_credentials.delete_many({"user_id": user["id"]})
