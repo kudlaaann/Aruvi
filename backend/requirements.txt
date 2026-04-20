@@ -13,3 +13,4 @@ requests==2.33.1
 google-api-python-client
 google-auth
 google-auth-oauthlib
+openpyxl
