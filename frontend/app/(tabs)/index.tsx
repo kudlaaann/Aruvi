@@ -201,153 +201,102 @@ export default function Dashboard() {
           <Text style={{ fontSize: 11, color: T.muted, marginBottom: 8 }}>Last backup: {d.last_backup.folder || 'N/A'}</Text>
         )}
         <View style={{ flexDirection: 'row', gap: 8 }}>
-          {!d?.drive_connected ? (
-            <TouchableOpacity testID="connect-drive-btn" style={{ flex: 1, backgroundColor: '#E8F5E9', paddingVertical: 10, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6 }}
-              onPress={async () => {
-				  try {
-					  const r = await apiFetch('/api/drive/connect');
-					  
-					  if (!r.ok) {
-						  const txt = await r.text();
-						  Alert.alert('Error', `Server error: ${txt}`);
-						  return;
-						  }
-						  
-						  const data = await r.json();
-						  
-						  if (data.authorization_url) {
-							  Linking.openURL(data.authorization_url);
-							  } else {
-								  Alert.alert('Error', 'No authorization URL received');
-								  }
-								  
-								  } catch (e) {
-									  Alert.alert('Error', String(e));
-									  }
-									  }}>
-              <Ionicons name="logo-google" size={16} color={T.primary} />
-              <Text style={{ fontSize: 13, fontWeight: '600', color: T.primary }}>Connect Drive</Text>
-            </TouchableOpacity>
-          ) : (
-            <>
-  <TouchableOpacity
-    testID="backup-now-btn"
-    style={{
-      flex: 1,
-      backgroundColor: '#E8F5E9',
-      paddingVertical: 10,
-      borderRadius: 8,
-      alignItems: 'center',
-      flexDirection: 'row',
-      justifyContent: 'center',
-      gap: 6
-    }}
-    onPress={async () => {
-      setBackingUp(true);
-      try {
-        const r = await apiFetch('/api/drive/backup', {
-          method: 'POST'
-        });
 
-        const data = await r.json();
+<TouchableOpacity
+  style={{
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: '#FFEBEE',
+    alignItems: 'center',
+    justifyContent: 'center'
+  }}
+  onPress={async () => {
+    await apiFetch('/api/drive/disconnect');
+    fetchDashboard();
+  }}
+>
+  <Ionicons name="unlink" size={16} color={T.err} />
+</TouchableOpacity>
+			
+<TouchableOpacity
+  style={{
+    flex: 1,
+    backgroundColor: '#E8F5E9',
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 6
+  }}
+  onPress={async () => {
+    try {
+      const r = await apiFetch('/api/drive/connect');
+      const data = await r.json();
 
-        Alert.alert('Backup Complete', data.message || 'Backup successful');
-
-        fetchDashboard();
-
-      } catch (e) {
-        Alert.alert('Error', 'Backup failed');
-      } finally {
-        setBackingUp(false);
+      if (data.authorization_url) {
+        Linking.openURL(data.authorization_url);
       }
-    }}
-    disabled={backingUp}
-  >
-    {backingUp ? (
-      <ActivityIndicator size="small" color={T.primary} />
-    ) : (
-      <Ionicons name="cloud-upload" size={16} color={T.primary} />
-    )}
+    } catch (e) {
+      Alert.alert('Error', 'Unable to connect');
+    }
+  }}
+>
+  <Ionicons name="logo-google" size={16} color={T.primary} />
+  <Text style={{ fontSize: 13, fontWeight: '600', color: T.primary }}>
+    Connect Drive
+  </Text>
+</TouchableOpacity>
 
-    <Text style={{ fontSize: 13, fontWeight: '600', color: T.primary }}>
-      {backingUp ? 'Backing up...' : 'Backup Now'}
-    </Text>
-  </TouchableOpacity>
 
-  <TouchableOpacity
-    style={{
-      flex: 1,
-      backgroundColor: '#E3F2FD',
-      paddingVertical: 10,
-      borderRadius: 8,
-      alignItems: 'center',
-      flexDirection: 'row',
-      justifyContent: 'center',
-      gap: 6
-    }}
-    onPress={async () => {
-      Alert.alert(
-        'Restore Backup',
-        'Current data will be replaced by latest backup. Continue?',
-        [
-          { text: 'Cancel' },
-          {
-            text: 'Restore',
-            onPress: async () => {
-              setRestoring(true);
+<TouchableOpacity
+  style={{
+    flex: 1,
+    backgroundColor: '#E3F2FD',
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 6
+  }}
+  onPress={async () => {
+    Alert.alert(
+      'Restore Backup',
+      'Restore latest backup now?',
+      [
+        { text: 'Cancel' },
+        {
+          text: 'Restore',
+          onPress: async () => {
+            try {
+              const r = await apiFetch('/api/drive/restore', {
+                method: 'POST'
+              });
 
-              try {
-                const r = await apiFetch('/api/drive/restore', {
-                  method: 'POST'
-                });
+              const data = await r.json();
 
-                const data = await r.json();
+              Alert.alert('Restore Complete', data.message || 'Backup restored');
 
-                Alert.alert('Restore Complete', data.message);
+              fetchDashboard();
 
-                fetchDashboard();
-
-              } catch (e) {
-                Alert.alert('Error', 'Restore failed');
-              } finally {
-                setRestoring(false);
-              }
+            } catch (e) {
+              Alert.alert('Error', 'Restore failed');
             }
           }
-        ]
-      );
-    }}
-    disabled={restoring}
-  >
-    {restoring ? (
-      <ActivityIndicator size="small" color={T.secondary} />
-    ) : (
-      <Ionicons name="cloud-download" size={16} color={T.secondary} />
-    )}
+        }
+      ]
+    );
+  }}
+>
+  <Ionicons name="cloud-download" size={16} color={T.secondary} />
+  <Text style={{ fontSize: 13, fontWeight: '600', color: T.secondary }}>
+    Restore
+  </Text>
+</TouchableOpacity>
 
-    <Text style={{ fontSize: 13, fontWeight: '600', color: T.secondary }}>
-      {restoring ? 'Restoring...' : 'Restore'}
-    </Text>
-  </TouchableOpacity>
-
-  <TouchableOpacity
-    style={{
-      paddingHorizontal: 12,
-      paddingVertical: 10,
-      borderRadius: 8,
-      backgroundColor: '#FFEBEE'
-    }}
-    onPress={async () => {
-      await apiFetch('/api/drive/disconnect');
-
-      fetchDashboard();
-    }}
-  >
-    <Ionicons name="unlink" size={16} color={T.err} />
-  </TouchableOpacity>
-</>
-          )}
-        </View>
+</View>
         <Text style={{ fontSize: 10, color: T.muted, marginTop: 8 }}>Auto-backup runs every 24 hours when connected</Text>
       </View>
 
