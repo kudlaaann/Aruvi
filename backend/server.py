@@ -185,8 +185,10 @@ async def get_dashboard(user=Depends(get_current_user)):
             else: monthly[key]["expense"] += t["amount"]
         bank_txns = [serialize_doc(dict(t)) for t in all_transactions if t.get("mode") == "Bank"]
         # Check Drive status
-        drive_creds = await db.drive_credentials.find_one()
-        drive_connected = drive_creds is not None
+        drive_creds = await db.drive_credentials.find_one({
+    "user_id": user["id"]
+})
+drive_connected = drive_creds is not None
         last_backup = await db.backup_log.find_one(sort=[("timestamp", -1)])
         return {
             "total_balance": bank_bal + petty_bal, "bank_balance": bank_bal, "petty_cash_balance": petty_bal,
