@@ -186,9 +186,7 @@ async def get_dashboard(user=Depends(get_current_user)):
         bank_txns = [serialize_doc(dict(t)) for t in all_transactions if t.get("mode") == "Bank"]
 
         # Check Drive status
-        drive_creds = await db.drive_credentials.find_one({
-            "user_id": user["id"]
-        })
+        drive_creds = await db.drive_credentials.find_one({})
 
         drive_connected = drive_creds is not None
 
@@ -473,25 +471,46 @@ async def drive_callback(code: str, state: str = ""):
         flow = get_drive_flow()
         flow.fetch_token(code=code)
         creds = flow.credentials
+
         await db.drive_credentials.update_one(
-            {"user_id": state},
-            {"$set": {"user_id": state, "access_token": creds.token, "refresh_token": creds.refresh_token,
-                      "token_uri": creds.token_uri, "client_id": creds.client_id, "client_secret": creds.client_secret,
-                      "scopes": list(creds.scopes) if creds.scopes else [], "expiry": creds.expiry.isoformat() if creds.expiry else None,
-                      "updated_at": datetime.now(timezone.utc).isoformat()}},
+            {},
+            {"$set": {
+                "user_id": "admin",
+                "access_token": creds.token,
+                "refresh_token": creds.refresh_token,
+                "token_uri": creds.token_uri,
+                "client_id": creds.client_id,
+                "client_secret": creds.client_secret,
+                "scopes": list(creds.scopes) if creds.scopes else [],
+                "expiry": creds.expiry.isoformat() if creds.expiry else None,
+                "updated_at": datetime.now(timezone.utc)
+            }},
             upsert=True
         )
-        frontend_url = os.environ.get("FRONTEND_URL", "")
-        return HTMLResponse(f"<html><body><h2>Google Drive Connected!</h2><p>You can close this window and return to the app.</p><script>window.close();</script></body></html>")
+
+        return HTMLResponse("""
+        <html>
+        <body>
+        <h2>Google Drive Connected</h2>
+        <script>
+            window.location.href = "aruvi://drive-success";
+        </script>
+        </body>
+        </html>
+        """)
+
     except Exception as e:
         logger.error(f"Drive callback error: {e}")
         return HTMLResponse(f"<html><body><h2>Connection Failed</h2><p>{str(e)}</p></body></html>")
 
 @api_router.get("/drive/status")
 async def drive_status(user=Depends(get_current_user)):
-    creds = await db.drive_credentials.find_one({"user_id": user["id"]})
+    creds = await db.drive_credentials.find_one({})
     last_backup = await db.backup_log.find_one(sort=[("timestamp", -1)])
-    return {"connected": creds is not None, "last_backup": serialize_doc(last_backup) if last_backup else None}
+    return {
+        "connected": creds is not None,
+        "last_backup": serialize_doc(last_backup) if last_backup else None
+    }
 
 @api_router.post("/drive/backup")
 async def trigger_backup(user=Depends(get_current_user)):
@@ -503,16 +522,34 @@ async def trigger_backup(user=Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 async def get_drive_service_for_user(user_id: str):
-    creds_doc = await db.drive_credentials.find_one({"user_id": user_id})
-    if not creds_doc: return None
-    creds = Credentials(token=creds_doc["access_token"], refresh_token=creds_doc.get("refresh_token"),
-                        token_uri=creds_doc["token_uri"], client_id=creds_doc["client_id"], client_secret=creds_doc["client_secret"],
-                        scopes=creds_doc.get("scopes"))
+    creds_doc = await db.drive_credentials.find_one({})
+
+    if not creds_doc:
+        return None
+
+    creds = Credentials(
+        token=creds_doc["access_token"],
+        refresh_token=creds_doc.get("refresh_token"),
+        token_uri=creds_doc["token_uri"],
+        client_id=creds_doc["client_id"],
+        client_secret=creds_doc["client_secret"],
+        scopes=creds_doc.get("scopes")
+    )
+
     if creds.expired and creds.refresh_token:
         creds.refresh(GoogleRequest())
-        await db.drive_credentials.update_one({"user_id": user_id},
-            {"$set": {"access_token": creds.token, "expiry": creds.expiry.isoformat() if creds.expiry else None}})
-    return build('drive', 'v3', credentials=creds)
+
+        await db.drive_credentials.update_one(
+            {},
+            {
+                "$set": {
+                    "access_token": creds.token,
+                    "expiry": creds.expiry.isoformat() if creds.expiry else None
+                }
+            }
+        )
+
+    return build("drive", "v3", credentials=creds)
 
 async def run_drive_backup(user_id: str):
     service = await get_drive_service_for_user(user_id)
@@ -752,7 +789,7 @@ async def restore_backup(user=Depends(get_current_user)):
 
 @api_router.get("/drive/disconnect")
 async def disconnect_drive(user=Depends(get_current_user)):
-    await db.drive_credentials.delete_many({"user_id": user["id"]})
+    await db.drive_credentials.delete_many({})
     return {"message": "Google Drive disconnected"}
 
 
@@ -787,7 +824,7 @@ async def auto_backup_scheduler():
             if admin:
                 user_id = str(admin["_id"])
 
-                creds = await db.drive_credentials.find_one({"user_id": user_id})
+                creds = await db.drive_credentials.find_one({})
 
                 if creds:
                     await run_drive_backup(user_id)
