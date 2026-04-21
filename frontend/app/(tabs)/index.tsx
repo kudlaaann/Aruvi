@@ -279,7 +279,9 @@ export default function Dashboard() {
 
               Alert.alert('Restore Complete', data.message || 'Backup restored');
 
-              fetchDashboard();
+              setTimeout(() => {
+  fetchDashboard();
+}, 1500);
 
             } catch (e) {
               Alert.alert('Error', 'Restore failed');
