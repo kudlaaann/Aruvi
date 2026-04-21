@@ -8,6 +8,7 @@ import { useFocusEffect } from 'expo-router';
 import { useAuth } from '../../src/AuthContext';
 import { useApi } from '../../src/useApi';
 import { useIsDesktop } from '../../src/useResponsive';
+import * as ExpoLinking from 'expo-linking';
 
 const T = { primary: '#2E7D32', secondary: '#1976D2', bg: '#F5F5F5', card: '#FFF', text: '#212121', muted: '#757575', ok: '#4CAF50', warn: '#FF9800', err: '#F44336' };
 
@@ -31,7 +32,22 @@ export default function Dashboard() {
     finally { setLoading(false); setRefreshing(false); }
   };
 
-  useFocusEffect(useCallback(() => { fetchDashboard(); }, []));
+useFocusEffect(
+  useCallback(() => {
+    fetchDashboard();
+  }, [])
+);
+
+useEffect(() => {
+  const sub = ExpoLinking.addEventListener('url', ({ url }) => {
+    if (url.includes('drive-success')) {
+      fetchDashboard();
+      Alert.alert('Success', 'Google Drive Connected');
+    }
+  });
+
+  return () => sub.remove();
+}, []);
 
   const fmt = (n: number) => `\u20b9${(n || 0).toLocaleString('en-IN')}`;
 
