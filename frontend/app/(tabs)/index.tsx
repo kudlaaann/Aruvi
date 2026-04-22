@@ -1,757 +1,376 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  RefreshControl,
-  ActivityIndicator,
-  Alert,
-  Linking,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity,
+  RefreshControl, ActivityIndicator, Alert, Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
-import * as ExpoLinking from 'expo-linking';
-
 import { useAuth } from '../../src/AuthContext';
 import { useApi } from '../../src/useApi';
 import { useIsDesktop } from '../../src/useResponsive';
 
-const T = {
-  primary: '#2E7D32',
-  secondary: '#1976D2',
-  bg: '#F5F5F5',
-  card: '#FFFFFF',
-  text: '#212121',
-  muted: '#757575',
-  ok: '#43A047',
-  err: '#E53935',
-  warn: '#FB8C00',
-};
+const T = { primary: '#2E7D32', secondary: '#1976D2', bg: '#F5F5F5', card: '#FFF', text: '#212121', muted: '#757575', ok: '#4CAF50', warn: '#FF9800', err: '#F44336' };
 
 export default function Dashboard() {
   const { logout } = useAuth();
   const { apiFetch } = useApi();
   const isDesktop = useIsDesktop();
-
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-
-  const [dashboard, setDashboard] = useState<any>(null);
-
+  const [d, setD] = useState<any>(null);
   const [showReports, setShowReports] = useState(false);
   const [showBank, setShowBank] = useState(false);
-
-  const [connecting, setConnecting] = useState(false);
-  const [restoring, setRestoring] = useState(false);
-  const [disconnecting, setDisconnecting] = useState(false);
-
-  const fmt = (n: number = 0) =>
-    `₹${Number(n || 0).toLocaleString('en-IN')}`;
+  const [backingUp, setBackingUp] = useState(false);
+	const [restoring, setRestoring] = useState(false);
 
   const fetchDashboard = async () => {
     try {
-      const res = await apiFetch('/api/dashboard');
-
-      if (res.ok) {
-        const data = await res.json();
-        setDashboard(data);
-      }
-    } catch (e) {
-      console.log('Dashboard error:', e);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
+      const r = await apiFetch('/api/dashboard');
+      if (r.ok) setD(await r.json());
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); setRefreshing(false); }
   };
 
-  const refreshAll = () => {
-    setRefreshing(true);
-    fetchDashboard();
-  };
+  useFocusEffect(useCallback(() => { fetchDashboard(); }, []));
 
-  useEffect(() => {
-    fetchDashboard();
-  }, []);
+  const fmt = (n: number) => `\u20b9${(n || 0).toLocaleString('en-IN')}`;
 
-  useFocusEffect(
-    useCallback(() => {
-      fetchDashboard();
-    }, [])
-  );
+  if (loading) return <View style={s.center}><ActivityIndicator size="large" color={T.primary} /></View>;
 
-  useEffect(() => {
-    const sub = ExpoLinking.addEventListener('url', ({ url }) => {
-      if (
-        url.includes('drive-success') ||
-        url.includes('connected')
-      ) {
-        setTimeout(() => {
-          fetchDashboard();
-        }, 1200);
-
-        Alert.alert('Success', 'Google Drive Connected');
-      }
-    });
-
-    return () => sub.remove();
-  }, []);
-
-  const connectDrive = async () => {
-  try {
-    setConnecting(true);
-
-    const res = await apiFetch('/api/drive/connect');
-    const data = await res.json();
-
-    if (data.authorization_url) {
-      const supported = await Linking.canOpenURL(data.authorization_url);
-
-      if (supported) {
-        await Linking.openURL(data.authorization_url);
-      } else {
-        Alert.alert('Error', 'Cannot open Google login');
-      }
-    } else {
-      Alert.alert('Error', 'Unable to connect Google Drive');
-    }
-  } catch (error) {
-    Alert.alert('Error', 'Unable to connect Google Drive');
-  } finally {
-    setConnecting(false);
-  }
-};
-
-  const disconnectDrive = async () => {
-    try {
-      setDisconnecting(true);
-
-      await apiFetch('/api/drive/disconnect', {
-        method: 'POST',
-      });
-
-      fetchDashboard();
-    } catch {
-      Alert.alert('Error', 'Disconnect failed');
-    } finally {
-      setDisconnecting(false);
-    }
-  };
-
-  const restoreDrive = async () => {
-    Alert.alert(
-      'Restore Backup',
-      'Restore latest backup now?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Restore',
-          onPress: async () => {
-            try {
-              setRestoring(true);
-
-              const res = await apiFetch(
-                '/api/drive/restore',
-                {
-                  method: 'POST',
-                }
-              );
-
-              const data = await res.json();
-
-              Alert.alert(
-                'Restore Complete',
-                data.message || 'Backup restored'
-              );
-
-              setTimeout(() => {
-                fetchDashboard();
-              }, 1500);
-            } catch {
-              Alert.alert('Error', 'Restore failed');
-            } finally {
-              setRestoring(false);
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  if (loading) {
-    return (
-      <View style={s.center}>
-        <ActivityIndicator
-          size="large"
-          color={T.primary}
-        />
-      </View>
-    );
-  }
-
-  const d = dashboard || {};
-  const months = d.monthly_breakdown
-    ? Object.entries(d.monthly_breakdown).sort(
-        (a: any, b: any) =>
-          b[0].localeCompare(a[0])
-      )
-    : [];
+  const months = d?.monthly_breakdown ? Object.entries(d.monthly_breakdown).sort((a: any, b: any) => b[0].localeCompare(a[0])) : [];
 
   return (
-    <ScrollView
-      style={s.container}
-      contentContainerStyle={[
-        s.content,
-        isDesktop && {
-          maxWidth: 1200,
-          alignSelf: 'center',
-          width: '100%',
-        },
-      ]}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={refreshAll}
-          colors={[T.primary]}
-        />
-      }
-    >
-      {/* Header */}
-      <View style={s.header}>
-        <Text style={s.headerText}>
-          Aruvi Housing Solutions
-        </Text>
-      </View>
+    <ScrollView style={s.container} contentContainerStyle={[s.content, isDesktop && { paddingHorizontal: 32, paddingTop: 24, maxWidth: 1200 }]}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchDashboard(); }} colors={[T.primary]} />}>
 
-      {/* Main Balance */}
-      <View style={[s.card, s.greenCard]}>
-        <Text style={s.smallTitle}>
-          Total Balance
-        </Text>
-
-        <Text style={s.mainAmount}>
-          {fmt(d.total_balance)}
-        </Text>
-
-        <View style={s.rowBetween}>
-          <Text style={s.whiteSmall}>
-            Bank: {fmt(d.bank_balance)}
-          </Text>
-
-          <Text style={s.whiteSmall}>
-            Cash: {fmt(d.petty_cash_balance)}
-          </Text>
-        </View>
-      </View>
-
-      {/* Stock */}
-      <View
-        style={[
-          s.card,
-          { borderLeftColor: T.secondary },
-        ]}
-      >
-        <View style={s.rowBetween}>
-          <Text style={s.cardTitle}>
-            Bags in Stock
-          </Text>
-
-          <Text style={s.blueBig}>
-            {d.total_stock || 0}
-          </Text>
-        </View>
-
-        <View style={s.row}>
-          <View style={s.stockBoxGreen}>
-            <Text style={s.mutedSmall}>
-              Naturoplast
-            </Text>
-
-            <Text style={s.greenBig}>
-              {d.naturoplast_stock || 0}
-            </Text>
+      {/* Desktop Header */}
+      {isDesktop && (
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+          <View>
+            <Text style={{ fontSize: 28, fontWeight: 'bold', color: T.text }}>Dashboard</Text>
+            <Text style={{ fontSize: 14, color: T.muted }}>Real-time business overview</Text>
           </View>
-
-          <View style={s.stockBoxOrange}>
-            <Text style={s.mutedSmall}>
-              Iraniya
-            </Text>
-
-            <Text style={s.orangeBig}>
-              {d.iraniya_stock || 0}
-            </Text>
-          </View>
-        </View>
-      </View>
-
-      {/* Profit */}
-      <View
-        style={[
-          s.card,
-          {
-            borderLeftColor:
-              d.profit_loss >= 0
-                ? T.ok
-                : T.err,
-          },
-        ]}
-      >
-        <Text style={s.smallTitle}>
-          Profit / Loss
-        </Text>
-
-        <Text
-          style={[
-            s.bigPL,
-            {
-              color:
-                d.profit_loss >= 0
-                  ? T.ok
-                  : T.err,
-            },
-          ]}
-        >
-          {d.profit_loss >= 0 ? '+' : ''}
-          {fmt(d.profit_loss)}
-        </Text>
-
-        <Text style={s.greenText}>
-          Income: {fmt(d.total_income)}
-        </Text>
-
-        <Text style={s.redText}>
-          Expense: {fmt(d.total_expenses)}
-        </Text>
-      </View>
-
-      {/* Reports */}
-      <TouchableOpacity
-        style={s.card}
-        onPress={() =>
-          setShowReports(!showReports)
-        }
-      >
-        <View style={s.rowBetween}>
-          <Text style={s.cardTitle}>
-            Balance Sheet & Reports
-          </Text>
-
-          <Ionicons
-            name={
-              showReports
-                ? 'chevron-up'
-                : 'chevron-down'
-            }
-            size={22}
-            color={T.muted}
-          />
-        </View>
-      </TouchableOpacity>
-
-      {showReports && (
-        <View style={s.card}>
-          {months.length === 0 ? (
-            <Text style={s.muted}>
-              No reports yet
-            </Text>
-          ) : (
-            months.map(
-              ([month, vals]: any) => (
-                <View
-                  key={month}
-                  style={s.reportBox}
-                >
-                  <Text style={s.bold}>
-                    {month}
-                  </Text>
-
-                  <Text style={s.greenText}>
-                    Income:{' '}
-                    {fmt(vals.income)}
-                  </Text>
-
-                  <Text style={s.redText}>
-                    Expense:{' '}
-                    {fmt(vals.expense)}
-                  </Text>
-                </View>
-              )
-            )
-          )}
         </View>
       )}
 
-      {/* Bank */}
-      <TouchableOpacity
-        style={s.card}
-        onPress={() =>
-          setShowBank(!showBank)
-        }
-      >
-        <View style={s.rowBetween}>
-          <Text style={s.cardTitle}>
-            Bank Account
-          </Text>
+      {/* Main Balance Card */}
+      <View style={[s.card, { backgroundColor: T.primary }]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+          <Ionicons name="wallet" size={28} color="#FFF" />
+          <Text style={{ color: '#FFF', fontSize: 14, opacity: 0.9, textTransform: 'uppercase', letterSpacing: 0.5 }}>Total Balance</Text>
+        </View>
+        <Text testID="total-balance" style={{ fontSize: 36, fontWeight: 'bold', color: '#FFF', marginBottom: 12 }}>{fmt(d?.total_balance)}</Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.2)' }}>
+          <Text style={{ color: '#FFF', opacity: 0.8, fontSize: 12 }}>Bank: {fmt(d?.bank_balance)}</Text>
+          <Text style={{ color: '#FFF', opacity: 0.8, fontSize: 12 }}>Petty Cash: {fmt(d?.petty_cash_balance)}</Text>
+        </View>
+      </View>
 
-          <View style={s.row}>
-            <Text style={s.blueBig}>
-              {fmt(d.bank_balance)}
-            </Text>
+      {/* Stats Grid - 4 columns on desktop */}
+      <View style={[{ flexDirection: 'row', gap: 12, marginBottom: 16, flexWrap: isDesktop ? 'wrap' : 'nowrap' }]}>
+        <View style={[s.card, { flex: 1, minWidth: isDesktop ? 200 : undefined, borderLeftWidth: 4, borderLeftColor: T.warn, alignItems: 'center', padding: 14 }]}>
+          <Ionicons name="trending-up" size={22} color={T.warn} />
+          <Text testID="total-receivables" style={s.statVal}>{fmt(d?.total_receivables)}</Text>
+          <Text style={s.statLbl}>Receivables</Text>
+        </View>
+        <View style={[s.card, { flex: 1, minWidth: isDesktop ? 200 : undefined, borderLeftWidth: 4, borderLeftColor: T.err, alignItems: 'center', padding: 14 }]}>
+          <Ionicons name="trending-down" size={22} color={T.err} />
+          <Text testID="total-expenses" style={s.statVal}>{fmt(d?.total_expenses)}</Text>
+          <Text style={s.statLbl}>Expenses</Text>
+        </View>
+      </View>
 
-            <Ionicons
-              name={
-                showBank
-                  ? 'chevron-up'
-                  : 'chevron-down'
-              }
-              size={22}
-              color={T.muted}
-            />
+      {/* Stock Card - per bag type */}
+      <View style={[s.card, { borderLeftWidth: 4, borderLeftColor: T.secondary, marginBottom: 16 }]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+          <Ionicons name="cube" size={22} color={T.secondary} />
+          <Text style={{ fontSize: 16, fontWeight: '600', color: T.text }}>Bags in Stock</Text>
+          <Text testID="total-stock" style={{ fontSize: 24, fontWeight: 'bold', color: T.secondary, marginLeft: 'auto' }}>{d?.total_stock || 0}</Text>
+        </View>
+        <View style={{ flexDirection: 'row', gap: 12 }}>
+          <View style={{ flex: 1, backgroundColor: '#E8F5E9', borderRadius: 8, padding: 10, alignItems: 'center' }}>
+            <Text style={{ fontSize: 11, color: T.muted }}>Naturoplast</Text>
+            <Text style={{ fontSize: 18, fontWeight: 'bold', color: T.primary }}>{d?.naturoplast_stock || 0}</Text>
+          </View>
+          <View style={{ flex: 1, backgroundColor: '#FFF3E0', borderRadius: 8, padding: 10, alignItems: 'center' }}>
+            <Text style={{ fontSize: 11, color: T.muted }}>Iraniya</Text>
+            <Text style={{ fontSize: 18, fontWeight: 'bold', color: T.warn }}>{d?.iraniya_stock || 0}</Text>
           </View>
         </View>
+      </View>
+
+      {/* Profit/Loss Card */}
+      <View style={[s.card, { borderLeftWidth: 4, borderLeftColor: (d?.profit_loss || 0) >= 0 ? T.ok : T.err, marginBottom: 16 }]}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <View>
+            <Text style={{ fontSize: 12, color: T.muted, textTransform: 'uppercase' }}>Profit / Loss</Text>
+            <Text testID="profit-loss" style={{ fontSize: 28, fontWeight: 'bold', color: (d?.profit_loss || 0) >= 0 ? T.ok : T.err }}>
+              {(d?.profit_loss || 0) >= 0 ? '+' : ''}{fmt(d?.profit_loss)}
+            </Text>
+          </View>
+          <View style={{ alignItems: 'flex-end' }}>
+            <Text style={{ fontSize: 12, color: T.ok }}>Income: {fmt(d?.total_income)}</Text>
+            <Text style={{ fontSize: 12, color: T.err }}>Expense: {fmt(d?.total_expenses)}</Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Balance Sheet Expandable */}
+      <TouchableOpacity testID="toggle-reports" style={[s.card, { marginBottom: 4 }]} onPress={() => setShowReports(!showReports)}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Ionicons name="bar-chart" size={22} color={T.primary} />
+            <Text style={{ fontSize: 16, fontWeight: '600', color: T.text }}>Balance Sheet & Reports</Text>
+          </View>
+          <Ionicons name={showReports ? 'chevron-up' : 'chevron-down'} size={22} color={T.muted} />
+        </View>
       </TouchableOpacity>
+      {showReports && (
+        <View style={[s.card, { marginBottom: 16, marginTop: 0, borderTopLeftRadius: 0, borderTopRightRadius: 0 }]}>
+          <Text style={{ fontSize: 14, fontWeight: 'bold', color: T.text, marginBottom: 12 }}>Assets</Text>
+          <View style={s.bsRow}><Text style={s.bsLabel}>Bank Balance</Text><Text style={s.bsValue}>{fmt(d?.bank_balance)}</Text></View>
+          <View style={s.bsRow}><Text style={s.bsLabel}>Petty Cash</Text><Text style={s.bsValue}>{fmt(d?.petty_cash_balance)}</Text></View>
+          <View style={s.bsRow}><Text style={s.bsLabel}>Receivables</Text><Text style={s.bsValue}>{fmt(d?.total_receivables)}</Text></View>
+          <View style={[s.bsRow, { borderTopWidth: 2, borderTopColor: T.primary, marginTop: 8, paddingTop: 8 }]}>
+            <Text style={[s.bsLabel, { fontWeight: 'bold' }]}>Total Assets</Text>
+            <Text style={[s.bsValue, { fontWeight: 'bold', color: T.primary }]}>{fmt((d?.bank_balance || 0) + (d?.petty_cash_balance || 0) + (d?.total_receivables || 0))}</Text>
+          </View>
 
-      {showBank && (
-        <View style={s.card}>
-          {(d.bank_transactions || [])
-            .slice(0, 20)
-            .map((item: any, i: number) => (
-              <View
-                key={i}
-                style={s.bankRow}
-              >
-                <Text>
-                  {item.description ||
-                    item.type}
-                </Text>
+          <Text style={{ fontSize: 14, fontWeight: 'bold', color: T.text, marginBottom: 12, marginTop: 20 }}>Liabilities</Text>
+          <View style={s.bsRow}><Text style={s.bsLabel}>Partner Balances</Text><Text style={s.bsValue}>{fmt(d?.total_partner_balance)}</Text></View>
 
-                <Text
-                  style={{
-                    color:
-                      item.type ===
-                      'Income'
-                        ? T.ok
-                        : T.err,
-                  }}
-                >
-                  {item.type ===
-                  'Income'
-                    ? '+'
-                    : '-'}
-                  {fmt(item.amount)}
+          <Text style={{ fontSize: 14, fontWeight: 'bold', color: T.text, marginBottom: 12, marginTop: 20 }}>Monthly Breakdown</Text>
+          {months.map(([month, vals]: any) => (
+            <View key={month} style={{ marginBottom: 12, backgroundColor: T.bg, borderRadius: 8, padding: 12 }}>
+              <Text style={{ fontSize: 13, fontWeight: 'bold', color: T.text, marginBottom: 6 }}>{month}</Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <Text style={{ fontSize: 12, color: T.ok }}>Income: {fmt(vals.income)}</Text>
+                <Text style={{ fontSize: 12, color: T.err }}>Expense: {fmt(vals.expense)}</Text>
+                <Text style={{ fontSize: 12, fontWeight: 'bold', color: vals.income - vals.expense >= 0 ? T.ok : T.err }}>
+                  {vals.income - vals.expense >= 0 ? '+' : ''}{fmt(vals.income - vals.expense)}
                 </Text>
               </View>
-            ))}
+            </View>
+          ))}
+          {months.length === 0 && <Text style={{ fontSize: 13, color: T.muted }}>No data yet</Text>}
         </View>
       )}
 
-      {/* Drive */}
-      <View style={s.card}>
-        <Text style={s.cardTitle}>
-          Google Drive Backup
-        </Text>
-
-        <Text
-          style={{
-            marginTop: 8,
-            color: d.drive_connected
-              ? T.ok
-              : T.err,
-          }}
-        >
-          {d.drive_connected
-            ? 'Connected'
-            : 'Not connected'}
-        </Text>
-
-        {d.last_backup && (
-          <Text style={s.muted}>
-            Last Backup:{' '}
-            {d.last_backup.folder}
-          </Text>
-        )}
-
-        <View style={s.row}>
-          <TouchableOpacity
-            style={s.disconnectBtn}
-            onPress={disconnectDrive}
-          >
-            {disconnecting ? (
-              <ActivityIndicator
-                color={T.err}
-              />
-            ) : (
-              <Ionicons
-                name="unlink"
-                size={18}
-                color={T.err}
-              />
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={s.connectBtn}
-            onPress={connectDrive}
-          >
-            {connecting ? (
-              <ActivityIndicator
-                color={T.primary}
-              />
-            ) : (
-              <Text style={s.greenBtnTxt}>
-                Connect Drive
-              </Text>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={s.restoreBtn}
-            onPress={restoreDrive}
-          >
-            {restoring ? (
-              <ActivityIndicator
-                color={T.secondary}
-              />
-            ) : (
-              <Text style={s.blueBtnTxt}>
-                Restore
-              </Text>
-            )}
-          </TouchableOpacity>
+      {/* Bank Account Section */}
+      <TouchableOpacity testID="toggle-bank" style={[s.card, { marginBottom: 4 }]} onPress={() => setShowBank(!showBank)}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Ionicons name="business" size={22} color={T.secondary} />
+            <Text style={{ fontSize: 16, fontWeight: '600', color: T.text }}>Bank Account</Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Text style={{ fontSize: 16, fontWeight: 'bold', color: T.secondary }}>{fmt(d?.bank_balance)}</Text>
+            <Ionicons name={showBank ? 'chevron-up' : 'chevron-down'} size={22} color={T.muted} />
+          </View>
         </View>
+      </TouchableOpacity>
+      {showBank && (
+        <View style={[s.card, { marginBottom: 16, marginTop: 0, borderTopLeftRadius: 0, borderTopRightRadius: 0 }]}>
+          <Text style={{ fontSize: 14, fontWeight: 'bold', color: T.text, marginBottom: 12 }}>Bank Transactions</Text>
+          {(d?.bank_transactions || []).slice(0, 20).map((t: any, i: number) => (
+            <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: T.text }}>{t.description || t.category || t.type}</Text>
+                <Text style={{ fontSize: 11, color: T.muted }}>{typeof t.date === 'string' ? t.date.slice(0, 10) : ''}</Text>
+              </View>
+              <Text style={{ fontSize: 14, fontWeight: 'bold', color: t.type === 'Income' ? T.ok : T.err }}>
+                {t.type === 'Income' ? '+' : '-'}{fmt(t.amount)}
+              </Text>
+            </View>
+          ))}
+          {(!d?.bank_transactions || d.bank_transactions.length === 0) && <Text style={{ fontSize: 13, color: T.muted }}>No bank transactions yet</Text>}
+        </View>
+      )}
+
+      {/* Google Drive & Settings Section */}
+      <View style={[s.card, { marginBottom: 4 }]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+          <Ionicons name="cloud" size={22} color={T.primary} />
+          <Text style={{ fontSize: 16, fontWeight: '600', color: T.text }}>Google Drive Backup</Text>
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+          <Ionicons name={d?.drive_connected ? 'checkmark-circle' : 'close-circle'} size={18} color={d?.drive_connected ? T.ok : T.err} />
+          <Text style={{ fontSize: 13, color: T.muted }}>{d?.drive_connected ? 'Connected' : 'Not connected'}</Text>
+        </View>
+        {d?.last_backup && (
+          <Text style={{ fontSize: 11, color: T.muted, marginBottom: 8 }}>Last backup: {d.last_backup.folder || 'N/A'}</Text>
+        )}
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          {!d?.drive_connected ? (
+            <TouchableOpacity testID="connect-drive-btn" style={{ flex: 1, backgroundColor: '#E8F5E9', paddingVertical: 10, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6 }}
+              onPress={async () => {
+				  try {
+					  const r = await apiFetch('/api/drive/connect');
+					  
+					  if (!r.ok) {
+						  const txt = await r.text();
+						  Alert.alert('Error', `Server error: ${txt}`);
+						  return;
+						  }
+						  
+						  const data = await r.json();
+						  
+						  if (data.authorization_url) {
+							  Linking.openURL(data.authorization_url);
+							  } else {
+								  Alert.alert('Error', 'No authorization URL received');
+								  }
+								  
+								  } catch (e) {
+									  Alert.alert('Error', String(e));
+									  }
+									  }}>
+              <Ionicons name="logo-google" size={16} color={T.primary} />
+              <Text style={{ fontSize: 13, fontWeight: '600', color: T.primary }}>Connect Drive</Text>
+            </TouchableOpacity>
+          ) : (
+            <>
+  <TouchableOpacity
+    testID="backup-now-btn"
+    style={{
+      flex: 1,
+      backgroundColor: '#E8F5E9',
+      paddingVertical: 10,
+      borderRadius: 8,
+      alignItems: 'center',
+      flexDirection: 'row',
+      justifyContent: 'center',
+      gap: 6
+    }}
+    onPress={async () => {
+      setBackingUp(true);
+      try {
+        const r = await apiFetch('/api/drive/backup', {
+          method: 'POST'
+        });
+
+        const data = await r.json();
+
+        Alert.alert('Backup Complete', data.message || 'Backup successful');
+
+        fetchDashboard();
+
+      } catch (e) {
+        Alert.alert('Error', 'Backup failed');
+      } finally {
+        setBackingUp(false);
+      }
+    }}
+    disabled={backingUp}
+  >
+    {backingUp ? (
+      <ActivityIndicator size="small" color={T.primary} />
+    ) : (
+      <Ionicons name="cloud-upload" size={16} color={T.primary} />
+    )}
+
+    <Text style={{ fontSize: 13, fontWeight: '600', color: T.primary }}>
+      {backingUp ? 'Backing up...' : 'Backup Now'}
+    </Text>
+  </TouchableOpacity>
+
+  <TouchableOpacity
+    style={{
+      flex: 1,
+      backgroundColor: '#E3F2FD',
+      paddingVertical: 10,
+      borderRadius: 8,
+      alignItems: 'center',
+      flexDirection: 'row',
+      justifyContent: 'center',
+      gap: 6
+    }}
+    onPress={async () => {
+      Alert.alert(
+        'Restore Backup',
+        'Current data will be replaced by latest backup. Continue?',
+        [
+          { text: 'Cancel' },
+          {
+            text: 'Restore',
+            onPress: async () => {
+              setRestoring(true);
+
+              try {
+                const r = await apiFetch('/api/drive/restore', {
+                  method: 'POST'
+                });
+
+                const data = await r.json();
+
+                Alert.alert('Restore Complete', data.message);
+
+                fetchDashboard();
+
+              } catch (e) {
+                Alert.alert('Error', 'Restore failed');
+              } finally {
+                setRestoring(false);
+              }
+            }
+          }
+        ]
+      );
+    }}
+    disabled={restoring}
+  >
+    {restoring ? (
+      <ActivityIndicator size="small" color={T.secondary} />
+    ) : (
+      <Ionicons name="cloud-download" size={16} color={T.secondary} />
+    )}
+
+    <Text style={{ fontSize: 13, fontWeight: '600', color: T.secondary }}>
+      {restoring ? 'Restoring...' : 'Restore'}
+    </Text>
+  </TouchableOpacity>
+
+  <TouchableOpacity
+    style={{
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      borderRadius: 8,
+      backgroundColor: '#FFEBEE'
+    }}
+    onPress={async () => {
+      await apiFetch('/api/drive/disconnect');
+
+      fetchDashboard();
+    }}
+  >
+    <Ionicons name="unlink" size={16} color={T.err} />
+  </TouchableOpacity>
+</>
+          )}
+        </View>
+        <Text style={{ fontSize: 10, color: T.muted, marginTop: 8 }}>Auto-backup runs every 24 hours when connected</Text>
       </View>
 
       {/* Logout */}
-      <TouchableOpacity
-        style={s.logoutBtn}
-        onPress={() =>
-          Alert.alert(
-            'Logout',
-            'Are you sure?',
-            [
-              {
-                text: 'Cancel',
-              },
-              {
-                text: 'Logout',
-                onPress: logout,
-              },
-            ]
-          )
-        }
-      >
-        <Text style={s.logoutTxt}>
-          Sign Out
-        </Text>
+      <TouchableOpacity testID="logout-btn" style={{ marginTop: 16, paddingVertical: 14, borderRadius: 8, alignItems: 'center', backgroundColor: '#FFEBEE', flexDirection: 'row', justifyContent: 'center', gap: 8 }}
+        onPress={() => { Alert.alert('Logout', 'Are you sure?', [{ text: 'Cancel' }, { text: 'Logout', onPress: logout }]); }}>
+        <Ionicons name="log-out-outline" size={18} color={T.err} />
+        <Text style={{ fontSize: 14, fontWeight: '600', color: T.err }}>Sign Out</Text>
       </TouchableOpacity>
 
-      <View style={{ height: 40 }} />
+      <View style={{ height: 30 }} />
     </ScrollView>
   );
 }
 
 const s = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: T.bg,
-  },
-
-  content: {
-    padding: 16,
-  },
-
-  center: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  header: {
-    backgroundColor: T.primary,
-    padding: 22,
-    borderRadius: 14,
-    marginBottom: 16,
-  },
-
-  headerText: {
-    color: '#fff',
-    fontSize: 22,
-    fontWeight: '700',
-  },
-
-  card: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 14,
-    borderLeftWidth: 5,
-    borderLeftColor: T.primary,
-    elevation: 3,
-  },
-
-  greenCard: {
-    backgroundColor: T.primary,
-    borderLeftWidth: 0,
-  },
-
-  smallTitle: {
-    color: '#ddd',
-    fontSize: 13,
-  },
-
-  mainAmount: {
-    color: '#fff',
-    fontSize: 34,
-    fontWeight: 'bold',
-    marginVertical: 10,
-  },
-
-  whiteSmall: {
-    color: '#fff',
-    fontSize: 13,
-  },
-
-  row: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 12,
-  },
-
-  rowBetween: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: T.text,
-  },
-
-  blueBig: {
-    fontSize: 26,
-    fontWeight: 'bold',
-    color: T.secondary,
-  },
-
-  stockBoxGreen: {
-    flex: 1,
-    backgroundColor: '#E8F5E9',
-    padding: 12,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-
-  stockBoxOrange: {
-    flex: 1,
-    backgroundColor: '#FFF3E0',
-    padding: 12,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-
-  mutedSmall: {
-    color: T.muted,
-  },
-
-  greenBig: {
-    color: T.ok,
-    fontSize: 24,
-    fontWeight: 'bold',
-  },
-
-  orangeBig: {
-    color: T.warn,
-    fontSize: 24,
-    fontWeight: 'bold',
-  },
-
-  bigPL: {
-    fontSize: 34,
-    fontWeight: 'bold',
-  },
-
-  greenText: {
-    color: T.ok,
-    marginTop: 4,
-  },
-
-  redText: {
-    color: T.err,
-    marginTop: 4,
-  },
-
-  muted: {
-    color: T.muted,
-    marginTop: 8,
-  },
-
-  reportBox: {
-    backgroundColor: '#F8F8F8',
-    padding: 12,
-    borderRadius: 12,
-    marginTop: 10,
-  },
-
-  bold: {
-    fontWeight: '700',
-  },
-
-  bankRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-  },
-
-  disconnectBtn: {
-    width: 52,
-    backgroundColor: '#FFEBEE',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 10,
-  },
-
-  connectBtn: {
-    flex: 1,
-    backgroundColor: '#E8F5E9',
-    padding: 14,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-
-  restoreBtn: {
-    flex: 1,
-    backgroundColor: '#E3F2FD',
-    padding: 14,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-
-  greenBtnTxt: {
-    color: T.primary,
-    fontWeight: '700',
-  },
-
-  blueBtnTxt: {
-    color: T.secondary,
-    fontWeight: '700',
-  },
-
-  logoutBtn: {
-    backgroundColor: '#FFEBEE',
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginTop: 10,
-  },
-
-  logoutTxt: {
-    color: T.err,
-    fontWeight: '700',
-    fontSize: 16,
-  },
+  container: { flex: 1, backgroundColor: T.bg },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: T.bg },
+  content: { padding: 16 },
+  card: { backgroundColor: T.card, borderRadius: 12, padding: 16, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 4, elevation: 3 },
+  statVal: { fontSize: 18, fontWeight: 'bold', color: T.text, marginTop: 6, marginBottom: 2 },
+  statLbl: { fontSize: 11, color: T.muted, textTransform: 'uppercase', letterSpacing: 0.5 },
+  bsRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
+  bsLabel: { fontSize: 14, color: T.muted },
+  bsValue: { fontSize: 14, fontWeight: '600', color: T.text },
 });
