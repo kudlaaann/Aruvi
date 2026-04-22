@@ -3,13 +3,30 @@ import { StatusBar } from 'expo-status-bar';
 import { AuthProvider, useAuth } from '../src/AuthContext';
 import LoginScreen from '../src/LoginScreen';
 import { ActivityIndicator, View } from 'react-native';
+import * as Linking from 'expo-linking';
+import { useEffect } from 'react';
 
 function AppContent() {
   const { user, loading } = useAuth();
 
+  useEffect(() => {
+    const sub = Linking.addEventListener('url', ({ url }) => {
+      console.log('Deep Link:', url);
+    });
+
+    return () => sub.remove();
+  }, []);
+
   if (loading) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F5F5F5' }}>
+      <View
+        style={{
+          flex: 1,
+          justifyContent: 'center',
+          alignItems: 'center',
+          backgroundColor: '#F5F5F5',
+        }}
+      >
         <ActivityIndicator size="large" color="#2E7D32" />
       </View>
     );
