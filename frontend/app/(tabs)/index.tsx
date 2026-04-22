@@ -99,24 +99,29 @@ export default function Dashboard() {
   }, []);
 
   const connectDrive = async () => {
-    try {
-      setConnecting(true);
+  try {
+    setConnecting(true);
 
-      const res = await apiFetch('/api/drive/connect');
+    const res = await apiFetch('/api/drive/connect');
+    const data = await res.json();
 
-      const data = await res.json();
+    if (data.authorization_url) {
+      const supported = await Linking.canOpenURL(data.authorization_url);
 
-      if (data.authorization_url) {
-        Linking.openURL(data.authorization_url);
+      if (supported) {
+        await Linking.openURL(data.authorization_url);
       } else {
-        Alert.alert('Error', 'Unable to connect Google Drive');
+        Alert.alert('Error', 'Cannot open Google login');
       }
-    } catch {
+    } else {
       Alert.alert('Error', 'Unable to connect Google Drive');
-    } finally {
-      setConnecting(false);
     }
-  };
+  } catch (error) {
+    Alert.alert('Error', 'Unable to connect Google Drive');
+  } finally {
+    setConnecting(false);
+  }
+};
 
   const disconnectDrive = async () => {
     try {
