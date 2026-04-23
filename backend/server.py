@@ -16,7 +16,7 @@ import bcrypt, jwt
 
 # Google Drive imports
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
+from googleapiclient.http import MediaFileUpload
 from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request as GoogleRequest
@@ -509,239 +509,69 @@ async def get_drive_service_for_user(user_id: str):
 
 async def run_drive_backup(user_id: str):
     service = await get_drive_service_for_user(user_id)
+    if not service: raise HTTPException(status_code=400, detail="Google Drive not connected")
 
-    if not service:
-        raise HTTPException(status_code=400, detail="Google Drive not connected")
-
-    from openpyxl import Workbook
-
+    # Find or create backup folder
     folder_name = "Aruvi Housing Solutions - Backup"
-
     query = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
-    results = service.files().list(
-        q=query,
-        spaces="drive",
-        fields="files(id,name)"
-    ).execute()
-
-    folders = results.get("files", [])
-
+    results = service.files().list(q=query, spaces='drive', fields='files(id, name)').execute()
+    folders = results.get('files', [])
     if folders:
-        folder_id = folders[0]["id"]
+        folder_id = folders[0]['id']
     else:
-        folder = service.files().create(
-            body={
-                "name": folder_name,
-                "mimeType": "application/vnd.google-apps.folder"
-            },
-            fields="id"
-        ).execute()
+        folder_meta = {'name': folder_name, 'mimeType': 'application/vnd.google-apps.folder'}
+        folder = service.files().create(body=folder_meta, fields='id').execute()
+        folder_id = folder['id']
 
-        folder_id = folder["id"]
+    # Create date subfolder
+    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M")
+    subfolder_meta = {'name': date_str, 'mimeType': 'application/vnd.google-apps.folder', 'parents': [folder_id]}
+    subfolder = service.files().create(body=subfolder_meta, fields='id').execute()
+    subfolder_id = subfolder['id']
 
-    wb = Workbook()
-    wb.remove(wb.active)
+    uploaded_files = []
 
+    # Export each collection
     collections = {
-        "Projects": await db.projects.find().to_list(10000),
-        "Transactions": await db.transactions.find().to_list(10000),
-        "Partners": await db.partners.find().to_list(10000),
-        "PartnerTransactions": await db.partner_transactions.find().to_list(10000),
-        "InventoryPurchases": await db.inventory_purchases.find().to_list(10000),
-        "Settings": [await db.settings.find_one() or {}],
-        "Inventory": [await db.inventory.find_one() or {}],
+        "projects": await db.projects.find().to_list(10000),
+        "transactions": await db.transactions.find().to_list(10000),
+        "partners": await db.partners.find().to_list(10000),
+        "partner_transactions": await db.partner_transactions.find().to_list(10000),
+        "inventory_purchases": await db.inventory_purchases.find().to_list(10000),
     }
 
-    for sheet_name, docs in collections.items():
-        ws = wb.create_sheet(title=sheet_name[:31])
+    # Add settings and inventory
+    settings = await db.settings.find_one()
+    if settings: collections["settings"] = [settings]
+    inv = await db.inventory.find_one()
+    if inv: collections["inventory"] = [inv]
 
+    for name, docs in collections.items():
+        # Convert ObjectId and datetime to strings
         clean_docs = []
-
         for doc in docs:
-            row = {}
-
+            clean = {}
             for k, v in doc.items():
-                if k == "_id":
-                    row["id"] = str(v)
-                elif isinstance(v, (datetime, ObjectId)):
-                    row[k] = str(v)
-                else:
-                    row[k] = v
+                if k == "_id": clean["id"] = str(v)
+                elif isinstance(v, ObjectId): clean[k] = str(v)
+                elif isinstance(v, datetime): clean[k] = v.isoformat()
+                else: clean[k] = v
+            clean_docs.append(clean)
 
-            clean_docs.append(row)
+        # Write JSON file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(clean_docs, f, indent=2, default=str)
+            f.flush()
+            file_meta = {'name': f'{name}.json', 'parents': [subfolder_id]}
+            media = MediaFileUpload(f.name, mimetype='application/json')
+            uploaded = service.files().create(body=file_meta, media_body=media, fields='id,name').execute()
+            uploaded_files.append(uploaded['name'])
 
-        if not clean_docs:
-            ws.append(["No Data"])
-            continue
+    # Log the backup
+    log = {"user_id": user_id, "timestamp": datetime.now(timezone.utc), "folder": date_str, "files": uploaded_files, "status": "success"}
+    await db.backup_log.insert_one(log)
 
-        headers = list(clean_docs[0].keys())
-        ws.append(headers)
-
-        for item in clean_docs:
-            ws.append([str(item.get(h, "")) for h in headers])
-
-    filename = f"Aruvi_Backup_{datetime.now().strftime('%Y-%m-%d_%H-%M')}.xlsx"
-
-    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
-        wb.save(tmp.name)
-
-        media = MediaFileUpload(
-            tmp.name,
-            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-
-        service.files().create(
-            body={
-                "name": filename,
-                "parents": [folder_id]
-            },
-            media_body=media,
-            fields="id,name"
-        ).execute()
-
-    # Keep latest 30 backups only
-    files = service.files().list(
-        q=f"'{folder_id}' in parents and trashed=false",
-        orderBy="createdTime desc",
-        fields="files(id,name)"
-    ).execute().get("files", [])
-
-    if len(files) > 30:
-        for f in files[30:]:
-            service.files().delete(fileId=f["id"]).execute()
-
-    await db.backup_log.insert_one({
-        "user_id": user_id,
-        "timestamp": datetime.now(timezone.utc),
-        "file": filename,
-        "status": "success"
-    })
-
-    return {
-        "message": "Backup successful",
-        "file": filename
-    }
-    
-@api_router.post("/drive/restore")
-async def restore_backup(user=Depends(get_current_user)):
-    try:
-        service = await get_drive_service_for_user(user["id"])
-
-        if not service:
-            raise HTTPException(status_code=400, detail="Drive not connected")
-
-        folder_name = "Aruvi Housing Solutions - Backup"
-
-        # Find folder
-        folder_query = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
-
-        folders = service.files().list(
-            q=folder_query,
-            spaces="drive",
-            fields="files(id,name)"
-        ).execute().get("files", [])
-
-        if not folders:
-            raise HTTPException(status_code=404, detail="Backup folder not found")
-
-        folder_id = folders[0]["id"]
-
-        # Find latest Excel file
-        file_query = f"'{folder_id}' in parents and trashed=false and mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'"
-
-        files = service.files().list(
-            q=file_query,
-            orderBy="createdTime desc",
-            fields="files(id,name)"
-        ).execute().get("files", [])
-
-        if not files:
-            raise HTTPException(status_code=404, detail="No backup files found")
-
-        latest_file = files[0]
-
-        request = service.files().get_media(fileId=latest_file["id"])
-
-        file_stream = io.BytesIO()
-        downloader = MediaIoBaseDownload(file_stream, request)
-
-        done = False
-        while done is False:
-            status, done = downloader.next_chunk()
-
-        file_stream.seek(0)
-
-        from openpyxl import load_workbook
-
-        wb = load_workbook(file_stream)
-
-        # Clear old collections
-        await db.projects.delete_many({})
-        await db.transactions.delete_many({})
-        await db.partners.delete_many({})
-        await db.partner_transactions.delete_many({})
-        await db.inventory_purchases.delete_many({})
-        await db.settings.delete_many({})
-        await db.inventory.delete_many({})
-
-        collection_map = {
-            "Projects": db.projects,
-            "Transactions": db.transactions,
-            "Partners": db.partners,
-            "PartnerTransactions": db.partner_transactions,
-            "InventoryPurchases": db.inventory_purchases,
-            "Settings": db.settings,
-            "Inventory": db.inventory
-        }
-
-        for sheet_name, collection in collection_map.items():
-
-            if sheet_name not in wb.sheetnames:
-                continue
-
-            ws = wb[sheet_name]
-
-            rows = list(ws.values)
-
-            if not rows or rows[0][0] == "No Data":
-                continue
-
-            headers = list(rows[0])
-
-            docs = []
-
-            for row in rows[1:]:
-
-                doc = {}
-
-                for i, val in enumerate(row):
-                    if i < len(headers):
-                        key = headers[i]
-                        doc[key] = val
-
-                doc.pop("id", None)
-
-                docs.append(doc)
-
-            if docs:
-                await collection.insert_many(docs)
-
-        await db.backup_log.insert_one({
-            "user_id": user["id"],
-            "timestamp": datetime.now(timezone.utc),
-            "status": "restore_success",
-            "file": latest_file["name"]
-        })
-
-        return {
-            "message": "Restore successful",
-            "file": latest_file["name"]
-        }
-
-    except Exception as e:
-        logger.error(f"Restore failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
+    return {"message": f"Backup completed: {len(uploaded_files)} files uploaded", "folder": date_str, "files": uploaded_files}
 
 @api_router.get("/drive/disconnect")
 async def disconnect_drive(user=Depends(get_current_user)):
@@ -771,23 +601,20 @@ async def startup():
     asyncio.create_task(auto_backup_scheduler())
 
 async def auto_backup_scheduler():
+    """Run automatic backup every 24 hours"""
     while True:
-        await asyncio.sleep(86400)
-
+        await asyncio.sleep(86400)  # 24 hours
         try:
+            # Find admin user
             admin = await db.users.find_one({"role": "admin"})
-
             if admin:
                 user_id = str(admin["_id"])
-
                 creds = await db.drive_credentials.find_one({"user_id": user_id})
-
                 if creds:
                     await run_drive_backup(user_id)
-                    logger.info("Daily backup completed")
-
+                    logger.info("Auto backup completed")
         except Exception as e:
-            logger.error(f"Backup failed: {e}")
+            logger.error(f"Auto backup failed: {e}")
 
 
 # Include router & middleware
