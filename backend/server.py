@@ -156,9 +156,25 @@ async def get_me(user=Depends(get_current_user)):
 @api_router.get("/dashboard")
 async def get_dashboard(user=Depends(get_current_user)):
     try:
-        settings = await get_settings()
-        bank_bal = settings.get("bank_balance", 0)
-        petty_bal = settings.get("petty_cash_balance", 0)
+        
+
+bank_bal = 0
+petty_bal = 0
+
+for t in all_transactions:
+    amt = float(t.get("amount", 0))
+
+    if t.get("mode") == "Bank":
+        if t.get("type") == "Income":
+            bank_bal += amt
+        else:
+            bank_bal -= amt
+
+    elif t.get("mode") == "Petty Cash":
+        if t.get("type") == "Income":
+            petty_bal += amt
+        else:
+            petty_bal -= amt
         projects = await db.projects.find().to_list(1000)
         total_receivables = sum(p.get("pending_amount", 0) for p in projects)
         all_transactions = await db.transactions.find().to_list(10000)
@@ -185,7 +201,7 @@ async def get_dashboard(user=Depends(get_current_user)):
             else: monthly[key]["expense"] += t["amount"]
         bank_txns = [serialize_doc(dict(t)) for t in all_transactions if t.get("mode") == "Bank"]
         # Check Drive status
-        drive_creds = await db.drive_credentials.find_one()
+        drive_creds = await db.drive_credentials.find_one({"user_id": user["id"]})
         drive_connected = drive_creds is not None
         last_backup = await db.backup_log.find_one(sort=[("timestamp", -1)])
         return {
